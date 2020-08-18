@@ -10,30 +10,35 @@ import (
 
 const gpioTrigger = 18
 const gpioEcho = 24
+const topic = "home/serina/serina-rpi/distance_cm"
 
 func Start() {
-	doEvery(2*time.Second, publishDistance)
+	opts := mqtt.NewClientOptions().AddBroker("tcp://localhost:1883")
+	opts.AutoReconnect = true
+	opts.SetKeepAlive(2 * time.Second)
+	opts.SetPingTimeout(1 * time.Second)
+	client := mqtt.NewClient(opts)
+
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+
+	doEvery(2*time.Second, publishDistance(client))
 }
 
-func publishDistance() {
-	err := rpio.Open()
-	if err != nil {
-		fmt.Print(err)
-	}
-	distance := NewHCSR04(gpioTrigger, gpioEcho)
-	distanceCm := distance.Measure()
-	fmt.Printf("%f cm", distanceCm)
+func publishDistance(client mqtt.Client) func() {
+	return func() {
+		err := rpio.Open()
+		if err != nil {
+			fmt.Print(err)
+		}
 
-	const TOPIC = "home/serina/serina-rpi/distance_cm"
+		distanceSensor := NewHCSR04(gpioTrigger, gpioEcho)
+		distanceCm := distanceSensor.Measure()
 
-	opts := mqtt.NewClientOptions().AddBroker("tcp://localhost:1883")
-	client := mqtt.NewClient(opts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		fmt.Print(token.Error())
-	}
-
-	if token := client.Publish(TOPIC, 0, false, fmt.Sprintf("%f", distanceCm)); token.Wait() && token.Error() != nil {
-		fmt.Print(token.Error())
+		if token := client.Publish(topic, 0, false, fmt.Sprintf("%f", distanceCm)); token.Wait() && token.Error() != nil {
+			fmt.Print(token.Error())
+		}
 	}
 }
 
